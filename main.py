@@ -1,4 +1,4 @@
-from flask import Flask, request, abort
+import functions_framework
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 import time
 import logging
 import os
+import json
 
 # 設置日誌記錄
 logging.basicConfig(level=logging.INFO)
@@ -19,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 # 用於追蹤已處理的訊息ID，避免重複處理
 processed_messages = set()
-
-app = Flask(__name__)
 
 class PTTQueryBot:
     def __init__(self, channel_access_token, channel_secret):
@@ -384,31 +383,41 @@ class PTTQueryBot:
         
         return flex_content
 
-# 添加根路由用於測試
-@app.route("/")
-def home():
-    return "PTT Query Bot is running!"
+# 初始化Bot - 從環境變數讀取憑證
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
 
-# Flask Webhook 端點
-@app.route("/webhook", methods=['POST'])
-def webhook():
+if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
+    raise ValueError("請務必設定 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 環境變數")
+
+bot = PTTQueryBot(
+    channel_access_token=LINE_CHANNEL_ACCESS_TOKEN,
+    channel_secret=LINE_CHANNEL_SECRET
+)
+
+@functions_framework.http
+def webhook(request):
+    """Cloud Functions HTTP 入口點"""
     # 記錄收到的請求
     logger.info(f"收到 webhook 請求，方法: {request.method}")
     logger.info(f"請求標頭: {dict(request.headers)}")
-    logger.info(f"請求來源IP: {request.remote_addr}")
+    
+    # 只處理 POST 請求
+    if request.method != 'POST':
+        logger.error("只接受 POST 請求")
+        return "Method not allowed", 405
 
     # 檢查必要的標頭
     signature = request.headers.get('X-Line-Signature')
     if not signature:
         logger.error("缺少 X-Line-Signature 標頭")
-        abort(400)
+        return "Bad Request", 400
 
     body = request.get_data(as_text=True)
     logger.info(f"請求內容長度: {len(body)}")
     logger.info(f"請求內容: {body}")
     
     # 檢查是否為重複請求
-    import json
     try:
         webhook_data = json.loads(body)
         if 'events' in webhook_data:
@@ -426,41 +435,12 @@ def webhook():
     try:
         bot.handler.handle(body, signature)
         logger.info("成功處理 webhook 請求")
+        return 'OK'
     except InvalidSignatureError:
         logger.error("無效的簽名")
-        abort(400)
+        return "Bad Request", 400
     except Exception as e:
         logger.error(f"處理 webhook 時發生錯誤: {e}")
         import traceback
         logger.error(f"詳細錯誤: {traceback.format_exc()}")
-        abort(500)
-    
-    return 'OK'
-
-# 添加錯誤處理路由
-@app.errorhandler(403)
-def forbidden(error):
-    logger.error(f"403 Forbidden: {error}")
-    return "Forbidden", 403
-
-@app.errorhandler(404)
-def not_found(error):
-    logger.error(f"404 Not Found: {error}")
-    return "Not Found", 404
-
-# 初始化Bot - 從環境變數讀取憑證
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
-
-if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
-    raise ValueError("請務必設定 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 環境變數")
-
-bot = PTTQueryBot(
-    channel_access_token=LINE_CHANNEL_ACCESS_TOKEN,
-    channel_secret=LINE_CHANNEL_SECRET
-)
-
-if __name__ == "__main__":
-    logger.info("啟動 PTT Query Bot...")
-    port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+        return "Internal Server Error", 500
