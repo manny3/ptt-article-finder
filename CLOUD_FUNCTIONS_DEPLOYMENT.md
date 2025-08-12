@@ -34,7 +34,10 @@ gcloud functions deploy ptt-webhook \
   --entry-point webhook \
   --set-env-vars LINE_CHANNEL_ACCESS_TOKEN=你的_Channel_Access_Token,LINE_CHANNEL_SECRET=你的_Channel_Secret \
   --memory 512MB \
-  --timeout 540s
+  --timeout 540s \
+  --project=YOUR_PROJECT_ID \
+  --region=us-central1 \
+  --gen2
 ```
 
 ### 2. 使用環境變數檔案部署
@@ -53,7 +56,10 @@ gcloud functions deploy ptt-webhook \
   --entry-point webhook \
   --env-vars-file .env.yaml \
   --memory 512MB \
-  --timeout 540s
+  --timeout 540s \
+  --project=YOUR_PROJECT_ID \
+  --region=us-central1 \
+  --gen2
 ```
 
 ### 3. 取得 Function URL
@@ -102,6 +108,32 @@ curl -X POST https://REGION-PROJECT_ID.cloudfunctions.net/ptt-webhook \
 | 設定複雜度 | 中等 | 簡單 |
 
 ## 故障排除
+
+### 常見問題
+
+1. **部署失敗 - 403 錯誤**：
+   ```
+   ResponseError: status=[403], code=[Ok], message=[Location REGION is not found or access is unauthorized.]
+   ```
+   - **原因**：使用了 `REGION` 占位符而非實際區域名稱
+   - **解決**：使用具體區域如 `--region=us-central1`
+
+2. **Cloud Run 服務未找到**：
+   ```
+   Cloud Run service for the function was not found
+   ```
+   - **原因**：初始部署不完整，缺少必要參數
+   - **解決**：使用完整參數重新部署，包含 `--project`, `--region`, `--gen2`
+
+3. **Function 狀態 FAILED**：
+   - **檢查狀態**：`gcloud functions describe ptt-webhook --project=YOUR_PROJECT_ID --region=us-central1`
+   - **解決**：重新部署並確保所有參數正確
+
+### 必要參數說明
+
+- `--project=YOUR_PROJECT_ID`：明確指定 GCP 專案 ID
+- `--region=us-central1`：指定部署區域（推薦使用 us-central1）
+- `--gen2`：使用 Gen 2 Cloud Functions（更穩定，功能更完整）
 
 1. **部署失敗**：檢查專案權限和 API 啟用狀態
 2. **Function 逾時**：增加 timeout 或優化程式碼
